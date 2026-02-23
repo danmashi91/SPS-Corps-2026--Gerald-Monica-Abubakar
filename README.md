@@ -19,4 +19,4 @@ This system does NOT issue final loan approvals.
 - Evaluate performance using measurable metrics
 
 ## Repository Structure
-(Brief description of major folders)
+

@@ -1,0 +1,21 @@
+# Core agent framework
+langgraph
+langchain-ollama
+
+# Data validation and schemas
+pydantic
+
+# HTTP client for Ollama
+requests
+
+# Data handling
+pandas
+numpy
+scikit-learn
+
+# API layer (optional, out of scope for prototype but included for future use)
+fastapi
+uvicorn
+
+# Utilities
+python-dotenv

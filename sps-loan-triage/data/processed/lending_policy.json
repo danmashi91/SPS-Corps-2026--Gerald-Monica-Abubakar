@@ -1,0 +1,36 @@
+{
+  "version": "1.0",
+  "description": "Synthetic lending policy for unsecured personal consumer loans — prototype use only",
+  "policies": [
+    {
+      "id": "POL-001",
+      "trigger_tiers": ["High"],
+      "trigger_conditions": ["high_risk_tier"],
+      "clause": "Applications assigned a High risk tier must be escalated to manual underwriting for full review before any approval decision is made."
+    },
+    {
+      "id": "POL-002",
+      "trigger_tiers": ["Moderate", "High"],
+      "trigger_conditions": ["high_dti"],
+      "clause": "Applications with a debt-to-income ratio exceeding 43% require mandatory escalation to underwriting regardless of other scoring factors."
+    },
+    {
+      "id": "POL-003",
+      "trigger_tiers": ["Moderate", "High"],
+      "trigger_conditions": ["low_credit_score"],
+      "clause": "Applications with a credit score below 580 are classified as subprime and must be reviewed by a senior underwriter before proceeding."
+    },
+    {
+      "id": "POL-004",
+      "trigger_tiers": ["Moderate", "High"],
+      "trigger_conditions": ["recent_delinquencies"],
+      "clause": "Applications with two or more delinquencies in the past 24 months require escalation and documentation of the applicant's repayment history."
+    },
+    {
+      "id": "POL-005",
+      "trigger_tiers": ["Low", "Moderate", "High"],
+      "trigger_conditions": ["borderline"],
+      "clause": "Borderline applications — those falling within the defined margin around escalation thresholds — must receive a structured policy-aligned review before a final triage recommendation is issued."
+    }
+  ]
+}

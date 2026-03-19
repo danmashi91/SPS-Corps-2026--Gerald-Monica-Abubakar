@@ -10,22 +10,15 @@
 # ---------------------------------------------------------------------------
 
 # Feature weights for risk score computation (must sum to 1.0)
-WEIGHT_CREDIT_SCORE = 0.35
-WEIGHT_DTI_RATIO = 0.25
-WEIGHT_DELINQUENCIES = 0.20
-WEIGHT_INCOME_TO_LOAN = 0.20
+WEIGHT_CREDIT_SCORE = 0.45
+WEIGHT_DTI_RATIO = 0.30
+WEIGHT_DELINQUENCIES = 0.25
+WEIGHT_INCOME_TO_LOAN = 0.00
 
-# Risk tier thresholds (risk score is normalized 0–100)
-TIER_LOW_MAX = 40.0          # score <= 40 → Low risk
-TIER_MODERATE_MAX = 70.0     # 40 < score <= 70 → Moderate risk
-                              # score > 70 → High risk
-
-# Escalation threshold — scores above this trigger escalation recommendation
 ESCALATION_THRESHOLD = 55.0
-
-# Borderline margin — applications within this margin around the escalation
-# threshold are flagged as borderline and routed to Mode 2 (LLM reasoning)
-BORDERLINE_MARGIN = 10.0     # i.e., scores in range [45, 65] are borderline
+BORDERLINE_MARGIN = 10.0
+TIER_LOW_MAX = 35.0
+TIER_MODERATE_MAX = 60.0     # i.e., scores in range [37, 53] are borderline
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +115,7 @@ def determine_base_recommendation(risk_score: float) -> str:
     Returns:
         "escalate_to_underwriting" / "recommend_decline"
     """
-    if risk_score >= ESCALATION_THRESHOLD:
+    if risk_score <= ESCALATION_THRESHOLD:
         return "escalate_to_underwriting"
     else:
         return "recommend_decline"

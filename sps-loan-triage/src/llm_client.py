@@ -15,7 +15,7 @@ OLLAMA_BASE_URL = "http://localhost:11434/api/chat"
 
 # Primary and fallback model names — must match exactly what is pulled in Ollama
 PRIMARY_MODEL = "phi4-mini"
-FALLBACK_MODEL = "gemma3:2b"
+FALLBACK_MODEL = "gemma3"
 
 # Default timeout in seconds — LLM calls on CPU can take 2–4 seconds
 DEFAULT_TIMEOUT = 120

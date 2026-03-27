@@ -115,14 +115,11 @@ def mode_3_node(state: AgentState) -> AgentState:
 # ---------------------------------------------------------------------------
 
 def route_after_mode_1(state: AgentState) -> str:
-    """
-    Route after Mode 1 completes:
-    - Hard failure → end (error output)
-    - Non-borderline → mode_3 (Path A)
-    - Borderline → policy_retrieval (Path B)
-    """
     if state["error_flag"]:
         return "end_error"
+    # Check for no-LLM mode flag
+    if state["application_input"].get("_no_llm_mode"):
+        return "mode_3"
     if state["borderline_flag"]:
         return "policy_retrieval"
     return "mode_3"
@@ -216,6 +213,8 @@ def build_graph() -> StateGraph:
 
     return graph.compile()
 
+_GRAPH = build_graph()
+
 
 # ---------------------------------------------------------------------------
 # Public Run Function
@@ -224,14 +223,7 @@ def build_graph() -> StateGraph:
 def run_pipeline(application_input: dict) -> dict:
     """
     Execute the full loan triage pipeline for a single application.
-
-    Args:
-        application_input: Raw loan application dict from CLI.
-
-    Returns:
-        Final output dict (TriageOutput or ErrorOutput).
     """
-    app = build_graph()
     state = initial_state(application_input)
-    final_state = app.invoke(state)
+    final_state = _GRAPH.invoke(state)
     return final_state["final_output"]

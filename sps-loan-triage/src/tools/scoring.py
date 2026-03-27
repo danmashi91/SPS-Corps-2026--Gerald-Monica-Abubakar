@@ -15,10 +15,10 @@ WEIGHT_DTI_RATIO = 0.30
 WEIGHT_DELINQUENCIES = 0.25
 WEIGHT_INCOME_TO_LOAN = 0.00
 
-ESCALATION_THRESHOLD = 55.0
-BORDERLINE_MARGIN = 10.0
-TIER_LOW_MAX = 35.0
-TIER_MODERATE_MAX = 60.0     # i.e., scores in range [37, 53] are borderline
+ESCALATION_THRESHOLD = 38.0
+BORDERLINE_MARGIN = 8.0
+TIER_LOW_MAX = 22.0
+TIER_MODERATE_MAX = 55.0     # i.e., scores in range [37, 53] are borderline
 
 
 # ---------------------------------------------------------------------------

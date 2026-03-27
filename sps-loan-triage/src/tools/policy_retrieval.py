@@ -90,7 +90,7 @@ def retrieve_policy_clauses(
             c in triggered_conditions for c in policy.get("trigger_conditions", [])
         )
         if tier_match or condition_match:
-            matched_clauses.append(policy["clause"])
+            matched_clauses.append(f"{policy['id']}: {policy['clause']}")
 
     if matched_clauses:
         return matched_clauses, "found"
@@ -142,7 +142,7 @@ def format_policy_context(policy_clauses: list[str]) -> str:
         return ""
 
     lines = ["Relevant Lending Policy Clauses:"]
-    for i, clause in enumerate(policy_clauses, 1):
-        lines.append(f"{i}. {clause}")
+    for clause in policy_clauses:
+        lines.append(f"- {clause}")
 
     return "\n".join(lines)

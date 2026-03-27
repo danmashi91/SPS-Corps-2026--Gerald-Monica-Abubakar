@@ -27,6 +27,10 @@ CRITICAL RULES:
   and retrieved policy clauses.
 - You must ONLY cite policy clauses that appear in the provided policy context. 
   Do not invent or hallucinate policy rules.
+- When listing policy_references, copy the EXACT full text of each policy clause 
+  you cited, including its ID prefix (e.g. "POL-002: Applications with a DTI..."). 
+  Do not use numbers, abbreviations, or short labels.
+  Example: "Applications with a debt-to-income ratio exceeding 43% require mandatory escalation."
 - If no policy clauses were retrieved, generate a justification based solely on 
   the scoring factors without citing policy.
 - Be concise. Your explanation should be 2–4 sentences suitable for audit review 

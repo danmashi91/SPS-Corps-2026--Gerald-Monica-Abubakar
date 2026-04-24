@@ -4,14 +4,15 @@
 # State is fully independent per run — no persistence across loan application evaluations.
 
 from typing import TypedDict, List, Optional
+from config_loader import get_config
 
 
 class AgentState(TypedDict):
     # -------------------------
     # Input
     # -------------------------
-    application_input: dict          # Raw JSON input as received from CLI
-    validated_input: dict            # Cleaned and normalized fields after Mode 1 validation
+    application_input: dict          # Raw JSON input as received from CLI or API
+    validated_input: dict            # Cleaned and normalised fields after Mode 1 validation
 
     # -------------------------
     # Mode 1 outputs (Deterministic Scoring Engine)
@@ -39,7 +40,14 @@ class AgentState(TypedDict):
     llm_status: str                  # "success" / "retry" / "failed_after_retries" / "skipped"
     fallback_used: bool              # True if deterministic fallback was triggered
     retry_count: int                 # Current number of Mode 2 retry attempts
-    max_retries: int                 # Maximum allowed retries (constant: 2)
+    max_retries: int                 # Maximum allowed retries (from config)
+
+    # -------------------------
+    # Human-in-the-Loop review
+    # -------------------------
+    pending_review: bool             # True if case requires human review before finalising
+    review_reason: Optional[str]     # Why the case was flagged for review
+    human_decision: Optional[str]    # "approve" / "override_escalate" / "override_decline"
 
     # -------------------------
     # Error tracking
@@ -52,13 +60,7 @@ class AgentState(TypedDict):
     # Output
     # -------------------------
     timestamp: str                   # ISO format execution timestamp
-    final_output: Optional[dict]     # Terminal output artifact passed to CLI
-
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-MAX_RETRIES: int = 2  # Mode 2 maximum retry attempts — never use a magic number in code
+    final_output: Optional[dict]     # Terminal output artifact passed to CLI / API
 
 
 def initial_state(application_input: dict) -> AgentState:
@@ -66,6 +68,7 @@ def initial_state(application_input: dict) -> AgentState:
     Returns a clean initial AgentState for a new loan application evaluation.
     Call this at the start of every pipeline run.
     """
+    cfg = get_config()
     return AgentState(
         application_input=application_input,
         validated_input={},
@@ -80,7 +83,10 @@ def initial_state(application_input: dict) -> AgentState:
         llm_status="skipped",
         fallback_used=False,
         retry_count=0,
-        max_retries=MAX_RETRIES,
+        max_retries=cfg.max_retries,
+        pending_review=False,
+        review_reason=None,
+        human_decision=None,
         error_flag=False,
         error_stage=None,
         error_message=None,

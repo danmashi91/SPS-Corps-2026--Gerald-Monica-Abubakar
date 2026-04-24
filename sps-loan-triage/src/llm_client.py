@@ -5,7 +5,7 @@
 import requests
 import json
 from pydantic import BaseModel
-from typing import Type, TypeVar, Optional
+from typing import Type, TypeVar, Optional, Union
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -34,7 +34,7 @@ def call_llm(
     model: str = PRIMARY_MODEL,
     temperature: float = 0.3,
     timeout: int = DEFAULT_TIMEOUT,
-) -> str | T:
+) -> Union[str, T]:
     """
     Call a local Ollama model and return either raw text or a validated Pydantic object.
 

@@ -9,14 +9,10 @@ from datetime import datetime, timezone
 from state import AgentState
 from schemas import TriageOutput, ErrorOutput
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-
 LOG_DIR = os.path.join(
     os.path.dirname(__file__), "..", "..", "evaluation", "results"
 )
-LOG_FILE = os.path.join(LOG_DIR, "audit_log.jsonl")  # JSON Lines format — one record per line
+LOG_FILE = os.path.join(LOG_DIR, "audit_log.jsonl")
 
 
 # ---------------------------------------------------------------------------
@@ -38,6 +34,9 @@ def assemble_final_output(state: AgentState) -> dict:
             policy_references=state["policy_references"],
             llm_status=state["llm_status"],
             fallback_used=state["fallback_used"],
+            pending_review=state.get("pending_review", False),
+            review_reason=state.get("review_reason"),
+            human_decision=state.get("human_decision"),
             error_flag=state["error_flag"],
             error_stage=state["error_stage"],
             error_message=state["error_message"],
@@ -46,7 +45,6 @@ def assemble_final_output(state: AgentState) -> dict:
         return output.model_dump()
 
     except Exception as e:
-        # Mode 3 validation failure — return sanitized error output
         return ErrorOutput(
             error_flag=True,
             error_stage="mode_3",
@@ -61,17 +59,8 @@ def assemble_final_output(state: AgentState) -> dict:
 
 def log_pipeline_record(state: AgentState, final_output: dict) -> None:
     """
-    Persist the complete pipeline record to the local audit log.
-    Uses JSON Lines format — each evaluation is one line in the log file.
-
-    Logged fields include:
-    - Full input payload
-    - Validated input
-    - All intermediate scoring results
-    - Policy retrieval status
-    - LLM status and retry count
-    - Final output artifact
-    - Timestamp
+    Persist the complete pipeline record to the local audit log (JSON Lines format).
+    One record per line. All fields logged for audit compliance.
     """
     os.makedirs(LOG_DIR, exist_ok=True)
 
@@ -88,6 +77,9 @@ def log_pipeline_record(state: AgentState, final_output: dict) -> None:
         "llm_status": state.get("llm_status"),
         "retry_count": state.get("retry_count"),
         "fallback_used": state.get("fallback_used"),
+        "pending_review": state.get("pending_review", False),
+        "review_reason": state.get("review_reason"),
+        "human_decision": state.get("human_decision"),
         "error_flag": state.get("error_flag"),
         "error_stage": state.get("error_stage"),
         "error_message": state.get("error_message"),
@@ -98,15 +90,61 @@ def log_pipeline_record(state: AgentState, final_output: dict) -> None:
         f.write(json.dumps(log_record) + "\n")
 
 
+def log_pending_review(state: AgentState, case_id: str) -> None:
+    """
+    Log a pending-review record to the audit log.
+    Called by the API when a case is interrupted for human review.
+    """
+    os.makedirs(LOG_DIR, exist_ok=True)
+
+    log_record = {
+        "timestamp": state.get("timestamp", _now()),
+        "case_id": case_id,
+        "pending_review": True,
+        "review_reason": state.get("review_reason"),
+        "application_input": state.get("application_input", {}),
+        "risk_score": state.get("risk_score"),
+        "risk_tier": state.get("risk_tier"),
+        "triage_recommendation": state.get("triage_recommendation"),
+        "borderline_flag": state.get("borderline_flag"),
+        "llm_status": state.get("llm_status"),
+        "fallback_used": state.get("fallback_used"),
+        "human_decision": None,
+        "event": "pending_review_flagged",
+    }
+
+    with open(LOG_FILE, "a") as f:
+        f.write(json.dumps(log_record) + "\n")
+
+
+def read_pending_reviews() -> list:
+    """
+    Read all pending-review records from the audit log.
+    Used by GET /api/pending.
+    """
+    if not os.path.exists(LOG_FILE):
+        return []
+    results = []
+    try:
+        with open(LOG_FILE, "r") as f:
+            for line in f:
+                try:
+                    record = json.loads(line.strip())
+                    if record.get("pending_review") and record.get("event") == "pending_review_flagged":
+                        results.append(record)
+                except json.JSONDecodeError:
+                    continue
+    except OSError:
+        pass
+    return results
+
+
 # ---------------------------------------------------------------------------
 # Human-Readable CLI Summary
 # ---------------------------------------------------------------------------
 
 def format_cli_summary(final_output: dict) -> str:
-    """
-    Format the final output as a human-readable CLI summary.
-    Displayed alongside the structured JSON output.
-    """
+    """Format the final output as a human-readable CLI summary."""
     if final_output.get("error_flag"):
         return (
             f"\n{'='*60}\n"
@@ -123,6 +161,7 @@ def format_cli_summary(final_output: dict) -> str:
     borderline = final_output.get("borderline_flag", False)
     fallback = final_output.get("fallback_used", False)
     llm_status = final_output.get("llm_status", "skipped")
+    pending = final_output.get("pending_review", False)
 
     lines = [
         f"\n{'='*60}",
@@ -134,6 +173,7 @@ def format_cli_summary(final_output: dict) -> str:
         f"  Recommendation:    {recommendation.replace('_', ' ').title()}",
         f"  LLM Status:        {llm_status}",
         f"  Fallback Used:     {'Yes' if fallback else 'No'}",
+        f"  Pending Review:    {'Yes — ' + final_output.get('review_reason', '') if pending else 'No'}",
     ]
 
     if final_output.get("decision_explanation"):
@@ -146,7 +186,6 @@ def format_cli_summary(final_output: dict) -> str:
             lines.append(f"    - {ref}")
 
     lines.append(f"{'='*60}\n")
-
     return "\n".join(lines)
 
 
@@ -155,5 +194,4 @@ def format_cli_summary(final_output: dict) -> str:
 # ---------------------------------------------------------------------------
 
 def _now() -> str:
-    """Return current UTC timestamp in ISO format."""
     return datetime.now(timezone.utc).isoformat()

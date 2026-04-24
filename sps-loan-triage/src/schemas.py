@@ -1,8 +1,8 @@
 # schemas.py
 # Pydantic schemas for structured input validation and LLM output enforcement.
-# These schemas define the contract your system must satisfy at every boundary.
+# These schemas define the contract at every system boundary.
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 from typing import List, Literal, Optional
 
 
@@ -44,8 +44,7 @@ class LoanApplicationInput(BaseModel):
 class ReasoningAgentOutput(BaseModel):
     """
     Structured output from Mode 2 (Policy-Aware Reasoning Agent).
-    The LLM must return a response matching this schema exactly.
-    Enforced via Ollama structured output (JSON schema injection).
+    Enforced via Ollama's native structured output (JSON schema injection via format param).
     """
     decision_explanation: str = Field(
         description=(
@@ -98,6 +97,20 @@ class TriageOutput(BaseModel):
     fallback_used: bool = Field(
         description="True if deterministic fallback was triggered due to LLM failure"
     )
+    # Human-in-the-Loop fields
+    pending_review: bool = Field(
+        default=False,
+        description="True if this case requires human review before finalising"
+    )
+    review_reason: Optional[str] = Field(
+        default=None,
+        description="Why the case was flagged for human review"
+    )
+    human_decision: Optional[str] = Field(
+        default=None,
+        description="Human reviewer decision: approve / override_escalate / override_decline"
+    )
+    # Error tracking
     error_flag: bool = Field(description="True if a pipeline error occurred")
     error_stage: Optional[str] = Field(description="Stage where error occurred, if any")
     error_message: Optional[str] = Field(description="Error description, if any")
@@ -110,8 +123,7 @@ class TriageOutput(BaseModel):
 
 class ErrorOutput(BaseModel):
     """
-    Minimal structured output returned when the pipeline encounters a hard failure
-    (e.g., Mode 1 validation error, invalid input).
+    Minimal structured output returned when the pipeline encounters a hard failure.
     """
     error_flag: Literal[True] = True
     error_stage: str = Field(description="Pipeline stage where failure occurred")

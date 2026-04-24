@@ -1,7 +1,7 @@
 # evaluation/batch_evaluate.py
 # Runs the loan triage pipeline against the prepared evaluation dataset.
-# Measures accuracy, borderline-case performance, false rates, and latency.
-# Produces a structured evaluation report.
+# Measures accuracy, borderline-case performance, false rates, latency,
+# and optionally LLM-as-Judge quality scores for borderline cases.
 # Run prepare_dataset.py first before running this script.
 
 import sys
@@ -11,14 +11,9 @@ import time
 import pandas as pd
 from datetime import datetime, timezone
 
-# Add src directory to path for pipeline imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from orchestrator import run_pipeline
-
-# ---------------------------------------------------------------------------
-# Paths
-# ---------------------------------------------------------------------------
 
 DATASET_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "processed", "evaluation_dataset.csv")
 RESULTS_DIR  = os.path.join(os.path.dirname(__file__), "results")
@@ -29,8 +24,6 @@ DETAIL_PATH  = os.path.join(RESULTS_DIR, "evaluation_detail.csv")
 # ---------------------------------------------------------------------------
 # Ground Truth Mapping
 # ---------------------------------------------------------------------------
-# Kaggle ground truth: 1 = serious delinquency (high risk) → recommend_decline
-#                      0 = no delinquency (good applicant) → escalate_to_underwriting
 
 def ground_truth_to_recommendation(ground_truth: int) -> str:
     if ground_truth == 1:
@@ -45,15 +38,17 @@ def ground_truth_to_recommendation(ground_truth: int) -> str:
 def run_batch_evaluation(
     max_rows: int = 100,
     no_llm: bool = True,
-    verbose: bool = True
+    verbose: bool = True,
+    run_judge: bool = False,
 ) -> dict:
     """
     Run pipeline against evaluation dataset and compute metrics.
 
     Args:
-        max_rows: Maximum number of rows to evaluate (keep small for speed)
-        no_llm:   If True, run deterministic mode only (faster for bulk eval)
-        verbose:  Print progress to console
+        max_rows:  Maximum number of rows to evaluate
+        no_llm:    If True, run deterministic mode only (faster for bulk eval)
+        verbose:   Print progress to console
+        run_judge: If True, run LLM-as-Judge scoring on borderline cases (requires Ollama)
 
     Returns:
         Evaluation report dict
@@ -61,12 +56,12 @@ def run_batch_evaluation(
     print(f"\n{'='*60}")
     print(f"  LOAN TRIAGE BATCH EVALUATION")
     print(f"{'='*60}")
-    print(f"  Dataset:  {DATASET_PATH}")
-    print(f"  Max rows: {max_rows}")
-    print(f"  LLM mode: {'disabled (deterministic only)' if no_llm else 'enabled'}")
+    print(f"  Dataset:     {DATASET_PATH}")
+    print(f"  Max rows:    {max_rows}")
+    print(f"  LLM mode:    {'disabled (deterministic only)' if no_llm else 'enabled'}")
+    print(f"  LLM Judge:   {'enabled (borderline cases only)' if run_judge else 'disabled'}")
     print(f"{'='*60}\n")
 
-    # Load dataset
     if not os.path.exists(DATASET_PATH):
         print("ERROR: Dataset not found. Run prepare_dataset.py first.")
         sys.exit(1)
@@ -76,11 +71,15 @@ def run_batch_evaluation(
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
-    # ---------------------------------------------------------------------------
-    # Run pipeline for each case
-    # ---------------------------------------------------------------------------
+    # Load policy clauses once for the judge
+    policy_clauses = []
+    if run_judge:
+        from llm_judge import _load_policy_clauses
+        policy_clauses = _load_policy_clauses()
+
     results = []
     latencies = []
+    judge_scores = []
 
     for i, row in df.iterrows():
         application_input = {
@@ -109,7 +108,7 @@ def run_batch_evaluation(
 
             correct = predicted == expected and not error
 
-            results.append({
+            result_row = {
                 "case_id": i,
                 "credit_score": application_input["credit_score"],
                 "monthly_income": application_input["monthly_income"],
@@ -125,7 +124,25 @@ def run_batch_evaluation(
                 "correct": correct,
                 "error_flag": error,
                 "latency_seconds": round(latency, 3),
-            })
+            }
+
+            # Optional LLM judge evaluation for borderline cases
+            if run_judge and borderline and not no_llm:
+                from llm_judge import evaluate_explanation
+                judge_score = evaluate_explanation(output, application_input, policy_clauses)
+                if judge_score:
+                    result_row.update({
+                        "judge_factual_consistency": judge_score.factual_consistency,
+                        "judge_policy_grounding": judge_score.policy_grounding,
+                        "judge_reasoning_clarity": judge_score.reasoning_clarity,
+                        "judge_hallucination_detected": judge_score.hallucination_detected,
+                        "judge_notes": judge_score.judge_notes,
+                    })
+                    judge_scores.append(judge_score)
+                else:
+                    judge_scores.append(None)
+
+            results.append(result_row)
             latencies.append(latency)
 
         except Exception as e:
@@ -154,17 +171,14 @@ def run_batch_evaluation(
     correct = results_df["correct"].sum()
     errors = results_df["error_flag"].sum()
 
-    # Overall accuracy
     overall_accuracy = correct / total if total > 0 else 0
 
-    # Borderline case accuracy
     borderline_df = results_df[results_df.get("borderline_flag", False) == True]
     borderline_accuracy = (
         borderline_df["correct"].sum() / len(borderline_df)
         if len(borderline_df) > 0 else None
     )
 
-    # False escalation rate (escalated when should have declined)
     should_decline = results_df[results_df["expected_recommendation"] == "recommend_decline"]
     false_escalations = should_decline[
         should_decline["predicted_recommendation"] == "escalate_to_underwriting"
@@ -174,7 +188,6 @@ def run_batch_evaluation(
         if len(should_decline) > 0 else 0
     )
 
-    # False decline rate (declined when should have escalated)
     should_escalate = results_df[results_df["expected_recommendation"] == "escalate_to_underwriting"]
     false_declines = should_escalate[
         should_escalate["predicted_recommendation"] == "recommend_decline"
@@ -184,12 +197,16 @@ def run_batch_evaluation(
         if len(should_escalate) > 0 else 0
     )
 
-    # Latency
     avg_latency = sum(latencies) / len(latencies) if latencies else 0
     max_latency = max(latencies) if latencies else 0
 
-    # Tier distribution
     tier_dist = results_df["risk_tier"].value_counts().to_dict() if "risk_tier" in results_df else {}
+
+    # LLM judge metrics
+    judge_metrics: dict = {}
+    if run_judge and judge_scores:
+        from llm_judge import compute_judge_metrics
+        judge_metrics = compute_judge_metrics(judge_scores)
 
     # ---------------------------------------------------------------------------
     # Build Report
@@ -199,6 +216,7 @@ def run_batch_evaluation(
         "configuration": {
             "total_cases": total,
             "llm_enabled": not no_llm,
+            "judge_enabled": run_judge,
             "dataset": DATASET_PATH,
         },
         "metrics": {
@@ -218,10 +236,12 @@ def run_batch_evaluation(
             "correct": int(correct),
             "incorrect": int(total - correct - errors),
             "errors": int(errors),
-        }
+        },
     }
 
-    # Save report
+    if judge_metrics:
+        report["llm_judge"] = judge_metrics
+
     with open(REPORT_PATH, "w") as f:
         json.dump(report, f, indent=2)
 
@@ -233,12 +253,23 @@ def run_batch_evaluation(
     print(f"{'='*60}")
     print(f"  Total Cases:            {total}")
     print(f"  Overall Accuracy:       {overall_accuracy:.1%}")
-    print(f"  Borderline Accuracy:    {borderline_accuracy:.1%}" if borderline_accuracy is not None else "  Borderline Accuracy:    N/A")
+    if borderline_accuracy is not None:
+        print(f"  Borderline Accuracy:    {borderline_accuracy:.1%}")
+    else:
+        print(f"  Borderline Accuracy:    N/A")
     print(f"  False Escalation Rate:  {false_escalation_rate:.1%}")
     print(f"  False Decline Rate:     {false_decline_rate:.1%}")
     print(f"  Avg Latency:            {avg_latency:.3f}s")
     print(f"  Borderline Cases:       {len(borderline_df)}")
     print(f"  Errors:                 {errors}")
+
+    if judge_metrics:
+        print(f"\n  LLM JUDGE METRICS (borderline cases, n={judge_metrics.get('evaluated_count')})")
+        print(f"  Factually Consistent:   {judge_metrics.get('pct_factually_consistent', 'N/A'):.0%}" if judge_metrics.get('pct_factually_consistent') is not None else "  Factually Consistent:   N/A")
+        print(f"  Policy Grounded:        {judge_metrics.get('pct_policy_grounded', 'N/A'):.0%}" if judge_metrics.get('pct_policy_grounded') is not None else "  Policy Grounded:        N/A")
+        print(f"  Hallucination Detected: {judge_metrics.get('pct_hallucination_detected', 'N/A'):.0%}" if judge_metrics.get('pct_hallucination_detected') is not None else "  Hallucination Detected: N/A")
+        print(f"  Avg Reasoning Clarity:  {judge_metrics.get('avg_reasoning_clarity', 'N/A')}/5" if judge_metrics.get('avg_reasoning_clarity') is not None else "  Avg Reasoning Clarity:  N/A")
+
     print(f"{'='*60}")
     print(f"  Report saved to: {REPORT_PATH}")
     print(f"  Detail saved to: {DETAIL_PATH}")
@@ -252,11 +283,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Batch evaluate the loan triage pipeline")
     parser.add_argument("--rows", type=int, default=100, help="Number of cases to evaluate")
     parser.add_argument("--llm", action="store_true", help="Enable LLM reasoning (slower)")
+    parser.add_argument("--judge", action="store_true", help="Run LLM-as-Judge on borderline cases (requires --llm)")
     parser.add_argument("--quiet", action="store_true", help="Suppress progress output")
     args = parser.parse_args()
 
-    report = run_batch_evaluation(
+    run_batch_evaluation(
         max_rows=args.rows,
         no_llm=not args.llm,
-        verbose=not args.quiet
+        verbose=not args.quiet,
+        run_judge=args.judge,
     )
